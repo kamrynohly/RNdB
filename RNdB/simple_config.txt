@@ -1,6 +1,5 @@
 data-source = simple
 num-generated-points = 10
-epsilon = 12
 iterations = 5000
 epochs = 5
 top-q = 1

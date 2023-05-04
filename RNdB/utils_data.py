@@ -10,11 +10,7 @@ import datasets
 
 data_sources = {
     "simple": datasets.simple.Simple,
-    "ex1": datasets.exOne.ExOne,
-    "adult": datasets.adult.Adult,
-    "csCourse": datasets.csCourse.CSCourse,
 }
-
 
 def init_D_prime(selection, n_prime, d, D=False, interval=None):
     """
@@ -36,6 +32,8 @@ def init_D_prime(selection, n_prime, d, D=False, interval=None):
         )
     return Dprime
 
+def l2_loss_fn(Dprime, target_statistics, statistic_fn):
+    return np.linalg.norm(statistic_fn(Dprime) - target_statistics)
 
 @jit
 def sparsemax(logits):
@@ -59,6 +57,27 @@ def sparsemax(logits):
 
     return np.maximum(0, logits - tau_z)
 
+def jit_loss_fn(statistic_fn, norm=None, lambda_l1=0):
+
+    if norm == "L2":
+        ord_norm = 2
+    elif norm == "Linfty":
+        ord_norm = np.inf
+    else:
+        ord_norm = 5
+
+    @jit
+    def compute_loss_fn(Dprime, target_statistics):
+        if norm == "LogExp":
+            return np.log(
+                np.exp(statistic_fn(Dprime) - target_statistics).sum()
+            ) + lambda_l1 * np.linalg.norm(Dprime, 1)
+        else:
+            return np.linalg.norm(
+                statistic_fn(Dprime) - target_statistics, ord=ord_norm
+            ) + lambda_l1 * np.linalg.norm(Dprime, 1)
+
+    return compute_loss_fn
 
 @jit
 def sparsemax_project(D, feats_idx):

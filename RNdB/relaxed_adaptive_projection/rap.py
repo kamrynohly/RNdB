@@ -9,6 +9,7 @@ from jax import numpy as np, random, jit, value_and_grad
 from jax.example_libraries import optimizers
 
 from utils_data import sparsemax_project, randomized_rounding, select_noisy_q
+from utils_data import l2_loss_fn
 from .constants import SyntheticInitializationOptions, norm_mapping, Norm
 from .rap_configuration import RAPConfiguration
 
@@ -81,53 +82,27 @@ class RAP:
         :param key: key to generate random numbers with
         :return:
         """
-
-        if self.args.projection_interval:
-            # If we are projecting into [a,b], start with a dataset in range.
-            interval = self.args.projection_interval
-            if len(interval) != 2 or interval.projection_max <= interval.projection_min:
-                raise ValueError(
-                    "Must input interval in the form '--project a b' to project into [a,b], b>a"
-                )
+        if self.args.initialize_binomial:
             return self.__compute_initial_dataset(
-                SyntheticInitializationOptions.RANDOM_INTERVAL, key
+                SyntheticInitializationOptions.RANDOM_BINOMIAL, key
             )
         else:
-            if self.args.initialize_binomial:
-                return self.__compute_initial_dataset(
-                    SyntheticInitializationOptions.RANDOM_BINOMIAL, key
-                )
-            else:
-                return self.__compute_initial_dataset(
-                    SyntheticInitializationOptions.RANDOM, key
-                )
+            return self.__compute_initial_dataset(
+                SyntheticInitializationOptions.RANDOM, key
+            )
             
 
     def __jit_loss_fn(
         self, statistic_fn: Callable[[np.DeviceArray], np.DeviceArray]
     ) -> Callable[[np.DeviceArray, np.DeviceArray], np.DeviceArray]:
 
-        print("jit_loss_fn")
-
         ord_norm = norm_mapping[self.args.norm]
 
-        # I THINK WE'D WANT TO EDIT THE BELOW VALUES
         @jit
         def compute_loss_fn(
             synthetic_dataset: np.DeviceArray, target_statistics: np.DeviceArray
         ) -> np.DeviceArray:
-            extraLoss = 0
-            print(len(target_statistics))            
-            print(target_statistics[0])
-        
-            # if target_statistics[0] == 0:
-            #     extraLoss = 1000
-            if self.args.norm is Norm.LOG_EXP:
-                return np.log(
-                    np.exp(statistic_fn(synthetic_dataset) - target_statistics).sum()
-                ) + self.args.lambda_l1 * np.linalg.norm(synthetic_dataset, 1)
-            else:
-                return np.linalg.norm(
+            return np.linalg.norm(
                     statistic_fn(synthetic_dataset) - target_statistics, ord=ord_norm
                 ) + self.args.lambda_l1 * np.linalg.norm(synthetic_dataset, 1)
 
@@ -142,7 +117,6 @@ class RAP:
     ) -> Tuple[
         Callable[[np.DeviceArray, np.DeviceArray], np.DeviceArray], np.DeviceArray
     ]:
-        # print("get_update_fn")
 
         opt_init, opt_update, get_params = optimizer(learning_rate)
         opt_state = opt_init(self.D_prime)
@@ -158,8 +132,6 @@ class RAP:
 
 
     def __clip_array(self, array: np.DeviceArray) -> np.DeviceArray:
-        # print("clip_array")
-
         if self.args.projection_interval:
             projection_min, projection_max = self.args.projection_interval
             return np.clip(array, projection_min, projection_max)
@@ -167,17 +139,18 @@ class RAP:
             return array
 
 
+    # MOST IMPORTANT FOR RECONSTRUCTION
     def train(
         self, dataset: np.DeviceArray, k_way_attributes: Any, key: np.DeviceArray
     ) -> None:
-        print("train")
 
-        # THESE TRUE STATISTICS WILL TECHNICALLY BE OUR NOISY ONES / INPUT
-        true_statistics = self.args.statistic_function(dataset)
-        # for i in range(len(true_statistics)):
-        #     true_statistics = true_statistics.at[i].set(1.0)
-        print("true statistics")
-        print(true_statistics)
+        # Original line
+        # true_statistics = self.args.statistic_function(dataset)
+
+        # NOISY STATS GO HERE:
+        # actually correct = [0.,0.2, 0.1, 0.,  0.7, 0.,  0.,  0. ]
+        true_statistics = np.array([0.,0.2, 0, 0., 0.7, 0.,  0.,  0. ])
+
 
         sanitized_queries = np.array([])
         target_statistics = np.array([])
@@ -185,10 +158,23 @@ class RAP:
         k_way_queries = np.asarray(k_way_queries)
 
         for epoch in range(self.args.epochs):
+
+            # USE OUR HINTS HERE
+            hints_dict = {2: 1.} # saying the value at index 2 should be 0.1
+            for key, val in hints_dict.items():
+                true_statistics = true_statistics.at[key].set(val)
+
+            # L2 Error
             query_errs = np.abs(
-                self.args.statistic_function(self.D_prime) - true_statistics
+                (self.args.statistic_function(self.D_prime) - true_statistics) ** 2
             )
-           
+
+            # Apply our loss here:
+            for key, val in hints_dict.items():
+                hint_q_error = query_errs[key]
+                if hint_q_error != 0.0:
+                    query_errs = query_errs.at[key].set(1000 ** hint_q_error)
+
             if self.args.use_all_queries:
                 selected_indices = np.arange(len(k_way_queries))
             else:
@@ -197,14 +183,31 @@ class RAP:
 
             selected_queries = k_way_queries.take(selected_indices, axis=0)
             current_statistic_fn = self.args.preserve_subset_statistic(selected_queries)
-
+            # print("qs", selected_queries)
+            # testArr = []
+            # for val in selected_queries:
+            #     for index in val:
+            #         testArr.append(true_statistics[index])
+            #         break
+            #     break
+            # print(testArr)
 
             target_statistics = np.concatenate(
                 [
                     target_statistics,
                     current_statistic_fn(dataset)
+                    # np.asarray(testArr)
                 ]
             )
+            # target_statistics = np.concatenate(
+            #     [
+            #         target_statistics,
+            #         np.asarray(testArr)
+            #     ]
+            # )[0:]
+            # target_statistics = np.asarray(true_statistics)
+            # print("target", target_statistics)
+            # print("what", bad)
 
             sanitized_queries = np.asarray(
                 np.append(sanitized_queries, selected_indices), dtype=np.int32
@@ -215,7 +218,8 @@ class RAP:
                 np.asarray(curr_queries)
             )
 
-            target_statistics = self.__clip_array(target_statistics)
+            # target_statistics = self.__clip_array(target_statistics)
+            # target_statistics = true_statistics
             # print("hereee")
             # print(target_statistics)
             # target_statistics = target_statistics.at[2].set(1)

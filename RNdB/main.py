@@ -50,13 +50,6 @@ parser.add_argument(
     dest="n_prime",
     help="Number of points to " "generate (default: " "1000)",
 )
-
-parser.add_argument(
-    "--epsilon", type=float, default=1, help="Privacy parameter (default: 1)"
-)
-parser.add_argument(
-    "--delta", type=float, default=None, help="Privacy parameter (default: 1/n**2)"
-)
 parser.add_argument(
     "--iterations", type=int, default=1000, help="Number of iterations (default: 1000)"
 )
@@ -132,8 +125,6 @@ parser.add_argument(
     "preserve_statistic",
 )
 parser.add_argument("--k", type=int, default=3, help="k-th marginal (default k=3)")
-# parser.add_argument('--num-rand-queries', type=int, default=None,
-#                     help='number of random k-th queries (default None, i.e, enumerate all queries from marginals)')
 parser.add_argument(
     "--workload", type=int, default=64, help="workload of marginals (default 64)"
 )
@@ -177,8 +168,6 @@ parser.add_argument(
 parser.add_argument(
     "--epochs", type=int, default=10, help="Number of epochs (default: 100)"
 )
-# parser.add_argument('--select-T', type=float, default=0.1,
-#                     help='Threshold T on absolute errors (default 0.1)')
 parser.add_argument(
     "--csv-path",
     type=str,
@@ -204,14 +193,6 @@ parser.add_argument(
 parser.add_argument(
     "--measure-gen", action="store_true", help="Measure Generalization properties"
 )
-
-parser.add_argument(
-    "--oversamples",
-    type=str,
-    default=None,
-    help="comma separated values of oversamling rates (default None)",
-)
-
 args = parser.parse_args()
 if args.silent and args.verbose:
     raise ValueError(
@@ -229,13 +210,6 @@ if args.all_queries:
         "--all-queries option has been chosen. No selection of top queries will occur"
     )
 
-if args.save_fig:
-    if not os.path.exists(args.destination):
-        os.makedirs(args.destination)
-
-    with open(os.path.join(args.destination, "config.txt"), "w") as output_config_file:
-        output_config_file.write(parser.format_values())
-
 key = random.PRNGKey(args.seed)
 
 dataset = data_sources[args.data_source](
@@ -245,11 +219,6 @@ D = np.asarray(dataset.get_dataset())
 
 # update dataset shape
 args.n, args.d = D.shape
-
-# default delta if not specified
-if args.delta is None:
-    args.delta = 1 / args.n ** 2
-
 stat_module = __import__(args.statistic_module)
 
 # First select random k-way marginals from the dataset
@@ -296,8 +265,6 @@ algorithm_configuration = RAPConfiguration(
     silent=args.silent,
     epochs=args.epochs,
     iterations=args.iterations,
-    epsilon=args.epsilon,
-    delta=args.delta,
     norm=Norm(args.norm),
     projection_interval=projection_interval,
     optimizer_learning_rate=args.learning_rate,
@@ -309,6 +276,8 @@ algorithm_configuration = RAPConfiguration(
     initialize_binomial=args.initialize_binomial,
     feats_idx=feats_idx,
 )
+
+# From RAP, main steps!
 
 key, subkey = random.split(key)
 rap = RAP(algorithm_configuration, key=key)
@@ -326,186 +295,34 @@ print(all_synth_statistics)
 
 print("Total number of queries:", len(true_statistics))
 
-max_base = np.max(np.absolute(true_statistics - np.zeros(true_statistics.shape)))
-l1_base = np.linalg.norm(true_statistics - np.zeros(true_statistics.shape), ord=1)
-l2_base = np.linalg.norm(true_statistics - np.zeros(true_statistics.shape), ord=2)
-print("Baseline max abs error", max_base)
-print("Baseline L1 error", l1_base)
-print("Baseline L2 error", l2_base)
-
-max_final = np.max(np.absolute(true_statistics - all_synth_statistics))
-l1_final = np.linalg.norm(true_statistics - all_synth_statistics, ord=1)
-l2_final = np.linalg.norm(true_statistics - all_synth_statistics, ord=2)
-print("Final max abs error", max_final)
-print("Final L1 error", l1_final)
-print("Final L2 error", l2_final)
-
+# Making back into original schema
 if args.categorical_consistency:
-    # Check loss of accuracy when randomized_rounding is applied to get rap.Dprime_ohe dataset
-    if args.oversamples:
-        oversampling_errors = {}
-        for oversample in args.oversamples.split(","):
-            print("Oversample rate:", oversample)
-            max_final_ohe, l2_final_ohe = [], []
-            repetitions = 10
-            for rep in range(repetitions):
-                Dprime_ohe = rap.generate_rounded_dataset(
-                    key, oversample=int(oversample)
-                )
+    Dprime_ohe = rap.generate_rounded_dataset(key)
+    all_synth_statistics_ohe = all_statistic_fn(Dprime_ohe)
+    max_final_ohe = np.max(np.absolute(true_statistics - all_synth_statistics_ohe))
+    l1_final_ohe = np.linalg.norm(
+        true_statistics - all_synth_statistics_ohe, ord=1
+    ) / float(args.workload)
 
-                all_synth_statistics_ohe = all_statistic_fn(Dprime_ohe)
+    l2_final_ohe = np.linalg.norm(true_statistics - all_synth_statistics_ohe, ord=2)
+    print("\tFinal rounded max abs error", max_final_ohe)
+    print("\tFinal rounded L1 error", l1_final_ohe)
+    print("\tFinal rounded L2 error", l2_final_ohe)
 
-                max_final_ohe += [
-                    np.max(np.absolute(true_statistics - all_synth_statistics_ohe))
-                ]
-                l2_final_ohe += [
-                    np.linalg.norm(true_statistics - all_synth_statistics_ohe, ord=2)
-                ]
 
-            max_final_ohe = np.array(max_final_ohe)
-            l2_final_ohe = np.array(l2_final_ohe)
-
-            oversampling_errors[oversample] = [
-                (
-                    "max_error",
-                    float(np.mean(max_final_ohe)),
-                    float(np.std(max_final_ohe)),
-                ),
-                ("l2_error", float(np.mean(l2_final_ohe)), float(np.std(l2_final_ohe))),
-            ]
-        print(oversampling_errors)
-        pd.DataFrame.from_dict(oversampling_errors, orient="index").to_csv(
-            os.path.join(
-                args.csv_path,
-                "rounded_oversample_errors_{}_{}_{}_eps{}_T{}_K{}.csv".format(
-                    args.data_source,
-                    args.workload,
-                    args.k,
-                    args.epsilon,
-                    args.epochs,
-                    args.top_q,
-                ),
-            ),
-        )
-        max_final_ohe = np.mean(max_final_ohe)
-        l2_final_ohe = np.mean(l2_final_ohe)
-
-    else:
-        Dprime_ohe = rap.generate_rounded_dataset(key)
-        all_synth_statistics_ohe = all_statistic_fn(Dprime_ohe)
-        max_final_ohe = np.max(np.absolute(true_statistics - all_synth_statistics_ohe))
-        l1_final_ohe = np.linalg.norm(
-            true_statistics - all_synth_statistics_ohe, ord=1
-        ) / float(args.workload)
-
-        l2_final_ohe = np.linalg.norm(true_statistics - all_synth_statistics_ohe, ord=2)
-        print("\tFinal rounded max abs error", max_final_ohe)
-        print("\tFinal rounded L1 error", l1_final_ohe)
-        print("\tFinal rounded L2 error", l2_final_ohe)
-
-if args.measure_gen:
-    # Generalization
-    # Second set of k-way marginals for generalization
-    kway_attrs_2 = dataset.randomKway(num_kways=args.workload, k=args.k, seed=1)
-    kway_compact_queries_2, _ = dataset.get_queries(kway_attrs_2)
-    all_statistic_fn_2 = stat_module.preserve_statistic(kway_compact_queries_2)
-    true_statistics_2 = all_statistic_fn_2(D)
-
-    all_synth_statistics_2 = all_statistic_fn_2(rap.D_prime)
-    max_final_2 = np.max(np.absolute(true_statistics_2 - all_synth_statistics_2))
-    l1_final_2 = np.linalg.norm(true_statistics_2 - all_synth_statistics_2, ord=1)
-    l2_final_2 = np.linalg.norm(true_statistics_2 - all_synth_statistics_2, ord=2)
-    max_base_2 = np.max(
-        np.absolute(true_statistics_2 - np.zeros(true_statistics_2.shape))
-    )
-    l2_base_2 = np.linalg.norm(
-        true_statistics_2 - np.zeros(true_statistics_2.shape), ord=2
-    )
-    print("Final max abs gen error", max_final_2)
-    print("Final L1 gen error", l1_final_2)
-    print("Final L2 gen error", l2_final_2)
-
+# Saving our reconstruction as a set of rows in the original schema
 if args.csv_path:
-
     os.makedirs(args.csv_path, exist_ok=True)
-
-    names = [
-        "epsilon",
-        "max_error",
-        "l2_error",
-        "max_base",
-        "l2_base",
-        "npoints",
-        "norm",
-        "l1_reg",
-        "top_q",
-        "epochs",
-    ]
-    res = [
-        args.epsilon,
-        max_final,
-        l2_final,
-        max_base,
-        l2_base,
-        args.n_prime,
-        args.norm,
-        args.lambda_l1,
-        args.top_q,
-        args.epochs,
-    ]
-
-    fn_prefix = ""
-
-    if args.measure_gen:
-        names += ["max_base_2", "l2_base_2", "max_gen", "l2_gen"]
-        res += [max_base_2, l2_base_2, max_final_2, l2_final_2]
-        fn_prefix += "gen_"
-
-    if args.categorical_consistency:
-        names += ["max_final_ohe", "l2_final_ohe", "l1_final_ohe"]
-        res += [max_final_ohe, l2_final_ohe, l1_final_ohe]
-        fn_prefix += "rounded_"
-
-    df_res = pd.DataFrame([res], columns=names)
-
-    file_name = os.path.join(
-        args.csv_path,
-        fn_prefix
-        + "_adaptive_{}_{}_{}.csv".format(args.data_source, args.workload, args.k),
-    )
-
-    print("Saving ", file_name)
-
-    if os.path.exists(file_name):
-        dfprev = pd.read_csv(file_name)
-        df_res = df_res.append(dfprev, sort=False)
-
-    df_res.sort_values(
-        by=["epsilon", "norm", "npoints", "l1_reg"], ascending=False
-    ).to_csv(file_name, index=False)
-
-    pd.DataFrame(rap.D_prime).to_csv(
-        os.path.join(
-            args.csv_path,
-            "synthetic_data_{}_{}_{}.csv".format(
-                args.data_source, args.workload, args.k
-            ),
-        ),
-        index=False,
-    )
 
     if args.categorical_consistency:
         Dprime_cat = ohe_to_categorical(Dprime_ohe, feats_idx)
         pd.DataFrame(data=Dprime_cat, columns=list(dataset.domain.keys())).to_csv(
             os.path.join(
                 args.csv_path,
-                "rounded_synthetic_data_{}_{}_{}_eps{}_T{}_K{}.csv".format(
+                "reconstruction_{}_{}_{}.csv".format(
                     args.data_source,
                     args.workload,
                     args.k,
-                    args.epsilon,
-                    args.epochs,
-                    args.top_q,
                 ),
             ),
             index=False,

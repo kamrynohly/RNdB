@@ -23,15 +23,12 @@ class RAPConfiguration:
     # Hyperparameters
     epochs: int
     iterations: int
-    epsilon: float
     norm: Norm
     projection_interval: ProjectionInterval
     optimizer_learning_rate: float
     lambda_l1: float
     k: int
     top_q: int
-    epsilon: float
-    delta: float
     use_all_queries: bool
     rap_stopping_condition: float
     initialize_binomial: bool
