@@ -1,0 +1,2 @@
+epsilon,max_error,l2_error,max_base,l2_base,npoints,norm,l1_reg,top_q,epochs,max_final_ohe,l2_final_ohe,l1_final_ohe
+12.0,0.10003556,0.14130838,0.7,0.7348469,10,L2,0,1,5,0.100000024,0.14142138,0.0031250003
