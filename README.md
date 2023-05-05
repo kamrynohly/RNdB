@@ -1,4 +1,4 @@
-# Relaxed Adaptive Projection
+# Reconstructing a Noisy Database - RNdB
 Hello! This GitHub repository contains code originally from the paper [Differentially Private Query Release Through Adaptive Projection](https://arxiv.org/abs/2103.06641).
 
 This is an adaptation by Kamryn Ohly and Joanna Boyland of the original source code. 
