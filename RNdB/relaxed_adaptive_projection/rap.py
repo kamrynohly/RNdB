@@ -16,13 +16,9 @@ from .rap_configuration import RAPConfiguration
 class RAP:
     def __init__(self, args: RAPConfiguration, key: np.DeviceArray):
         self.args = args
-
         self.start_time = time.time()
-        # Initialize the synthetic dataset
         self.D_prime = self.__initialize_synthetic_dataset(key)
-
         self.feats_idx = args.feats_idx
-
         if self.args.verbose:
             logging.basicConfig(level=logging.DEBUG)
         elif not self.args.silent:
@@ -120,15 +116,6 @@ class RAP:
             return get_params(state), state, value
 
         return update, opt_state
-
-
-    # def __clip_array(self, array: np.DeviceArray) -> np.DeviceArray:
-    #     if self.args.projection_interval:
-    #         projection_min, projection_max = self.args.projection_interval
-    #         return np.clip(array, projection_min, projection_max)
-    #     else:
-    #         return array
-
 
 
     # MOST IMPORTANT FOR RECONSTRUCTION
