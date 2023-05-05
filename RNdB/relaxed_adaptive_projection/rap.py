@@ -9,7 +9,6 @@ from jax import numpy as np, random, jit, value_and_grad
 from jax.example_libraries import optimizers
 
 from utils_data import sparsemax_project, randomized_rounding, select_noisy_q
-from utils_data import l2_loss_fn
 from .constants import SyntheticInitializationOptions, norm_mapping, Norm
 from .rap_configuration import RAPConfiguration
 
@@ -21,14 +20,6 @@ class RAP:
         self.start_time = time.time()
         # Initialize the synthetic dataset
         self.D_prime = self.__initialize_synthetic_dataset(key)
-
-        self.statistics_l1 = []
-        self.statistics_max = []
-        self.means_l1 = []
-        self.means_max = []
-        self.max_errors = []
-        self.l2_errors = []
-        self.losses = []
 
         self.feats_idx = args.feats_idx
 
@@ -131,25 +122,23 @@ class RAP:
         return update, opt_state
 
 
-    def __clip_array(self, array: np.DeviceArray) -> np.DeviceArray:
-        if self.args.projection_interval:
-            projection_min, projection_max = self.args.projection_interval
-            return np.clip(array, projection_min, projection_max)
-        else:
-            return array
+    # def __clip_array(self, array: np.DeviceArray) -> np.DeviceArray:
+    #     if self.args.projection_interval:
+    #         projection_min, projection_max = self.args.projection_interval
+    #         return np.clip(array, projection_min, projection_max)
+    #     else:
+    #         return array
+
 
 
     # MOST IMPORTANT FOR RECONSTRUCTION
     def train(
-        self, dataset: np.DeviceArray, k_way_attributes: Any, key: np.DeviceArray
+        self, k_way_attributes: Any
     ) -> None:
-
-        # Original line
-        # true_statistics = self.args.statistic_function(dataset)
 
         # NOISY STATS GO HERE:
         # actually correct = [0.,0.2, 0.1, 0.,  0.7, 0.,  0.,  0. ]
-        true_statistics = np.array([0.,0.2, 0, 0., 0.7, 0.,  0.,  0. ])
+        true_statistics = np.array([0.,0.25, 0, 0., 0.75, 0.,  0.,  0. ])
 
 
         sanitized_queries = np.array([])
@@ -160,7 +149,7 @@ class RAP:
         for epoch in range(self.args.epochs):
 
             # USE OUR HINTS HERE
-            hints_dict = {2: 1.} # saying the value at index 2 should be 0.1
+            hints_dict = {2: 0.1} # saying the value at index 2 should be 0.1
             for key, val in hints_dict.items():
                 true_statistics = true_statistics.at[key].set(val)
 
@@ -181,48 +170,29 @@ class RAP:
                 selected_indices = select_noisy_q(query_errs, sanitized_queries, 
                                                   self.args.top_q)
 
-            selected_queries = k_way_queries.take(selected_indices, axis=0)
-            current_statistic_fn = self.args.preserve_subset_statistic(selected_queries)
-            # print("qs", selected_queries)
-            # testArr = []
-            # for val in selected_queries:
-            #     for index in val:
-            #         testArr.append(true_statistics[index])
-            #         break
-            #     break
-            # print(testArr)
+
+            # selects the worst current query to update on next round
+            valuesOfIndices = []
+            for i in selected_indices:
+                valuesOfIndices.append(true_statistics[i])
+                break
 
             target_statistics = np.concatenate(
                 [
                     target_statistics,
-                    current_statistic_fn(dataset)
-                    # np.asarray(testArr)
+                    np.asarray(valuesOfIndices)
                 ]
             )
-            # target_statistics = np.concatenate(
-            #     [
-            #         target_statistics,
-            #         np.asarray(testArr)
-            #     ]
-            # )[0:]
-            # target_statistics = np.asarray(true_statistics)
-            # print("target", target_statistics)
-            # print("what", bad)
 
+    
             sanitized_queries = np.asarray(
                 np.append(sanitized_queries, selected_indices), dtype=np.int32
             )
-
             curr_queries = k_way_queries[sanitized_queries]
             curr_statistic_fn = self.args.preserve_subset_statistic(
                 np.asarray(curr_queries)
             )
 
-            # target_statistics = self.__clip_array(target_statistics)
-            # target_statistics = true_statistics
-            # print("hereee")
-            # print(target_statistics)
-            # target_statistics = target_statistics.at[2].set(1)
 
             loss_fn = self.__jit_loss_fn(curr_statistic_fn)
             previous_loss = np.inf
@@ -235,7 +205,6 @@ class RAP:
             )
 
             for iteration in range(self.args.iterations):
-
                 self.D_prime, opt_state, loss = update(
                     self.D_prime, target_statistics, opt_state
                 )
@@ -245,26 +214,8 @@ class RAP:
                     self.D_prime = self.__clip_array(self.D_prime)
 
                 synthetic_statistics = curr_statistic_fn(self.D_prime)
-                self.statistics_l1.append(
-                    np.mean(np.absolute(target_statistics - synthetic_statistics))
-                )
-                self.statistics_max.append(
-                    np.amax(np.absolute(target_statistics - synthetic_statistics))
-                )
-                self.means_l1.append(
-                    np.mean(np.absolute(np.mean(dataset, 0) - np.mean(self.D_prime, 0)))
-                )
-                self.means_max.append(
-                    np.amax(np.absolute(np.mean(dataset, 0) - np.mean(self.D_prime, 0)))
-                )
+
                 all_synth_statistics = self.args.statistic_function(self.D_prime)
-                self.max_errors.append(
-                    np.max(np.absolute(true_statistics - all_synth_statistics))
-                )
-                self.l2_errors.append(
-                    np.linalg.norm(true_statistics - all_synth_statistics, ord=2)
-                )
-                self.losses.append(loss)
 
                 # Stop early if we made no progress this round.
                 if loss >= previous_loss - self.args.rap_stopping_condition:

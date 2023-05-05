@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 from typing import Callable, Any
 from jax import numpy as np
-from .constants import Norm, ProjectionInterval
+# from .constants import Norm, ProjectionInterval
+from .constants import Norm
 
 
 @dataclass
@@ -24,7 +25,7 @@ class RAPConfiguration:
     epochs: int
     iterations: int
     norm: Norm
-    projection_interval: ProjectionInterval
+    # projection_interval: ProjectionInterval
     optimizer_learning_rate: float
     lambda_l1: float
     k: int

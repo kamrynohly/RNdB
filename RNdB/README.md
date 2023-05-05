@@ -96,8 +96,6 @@ optional arguments:
   --num-points N, -n N  Number of points in the original dataset. Only used when generating datasets (default: 1000)
   --num-generated-points N_PRIME, -N N_PRIME
                         Number of points to generate (default: 1000)
-  --epsilon EPSILON     Privacy parameter (default: 1)
-  --delta DELTA         Privacy parameter (default: 1/n**2)
   --iterations ITERATIONS
                         Number of iterations (default: 1000)
   --save-figures SAVE_FIG
@@ -122,8 +120,6 @@ optional arguments:
   --workload WORKLOAD   workload of marginals (default 64)
   --learning-rate LEARNING_RATE, -lr LEARNING_RATE
                         Adam learning rate (default: 1e-3)
-  --project [PROJECT [PROJECT ...]]
-                        Project into [a,b] b>a during gradient descent (default: None, do not project))
   --initialize_binomial INITIALIZE_BINOMIAL
                         Initialize with 1-way marginals
   --lambda-l1 LAMBDA_L1
@@ -141,8 +137,6 @@ optional arguments:
   --categorical-consistency
                         Enforce consistency categorical variables
   --measure-gen         Measure Generalization properties
-  --oversamples OVERSAMPLES
-                        comma separated values of oversamling rates (default None)
 ```
 
 ## Security

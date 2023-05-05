@@ -1,7 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: CC-BY-NC-4.0
 from enum import Enum
-from typing import NamedTuple
 from jax import numpy as np
 
 
@@ -11,11 +10,6 @@ class Norm(Enum):
     L_2 = "L2"
     L_5 = "L5"
     LOG_EXP = "LogExp"
-
-
-class ProjectionInterval(NamedTuple):
-    projection_min: float
-    projection_max: float
 
 
 class SyntheticInitializationOptions(Enum):

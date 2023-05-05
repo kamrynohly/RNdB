@@ -8,7 +8,7 @@ import pandas as pd
 from jax import numpy as np, random
 
 from relaxed_adaptive_projection import RAPConfiguration, RAP
-from relaxed_adaptive_projection.constants import Norm, ProjectionInterval
+from relaxed_adaptive_projection.constants import Norm
 from utils_data import data_sources, ohe_to_categorical
 
 parser = configargparse.ArgumentParser()
@@ -30,7 +30,6 @@ parser.add_argument(
     "be set when consuming csv files ("
     "default: 2)",
 )
-
 parser.add_argument(
     "--num-points",
     "-n",
@@ -52,29 +51,6 @@ parser.add_argument(
 )
 parser.add_argument(
     "--iterations", type=int, default=1000, help="Number of iterations (default: 1000)"
-)
-
-parser.add_argument(
-    "--save-figures",
-    type=bool,
-    default=False,
-    dest="save_fig",
-    help="Save generated figures",
-)
-parser.add_argument(
-    "--no-show-figures",
-    type=bool,
-    default=False,
-    dest="no_show_fig",
-    help="Not show generated figures" "during execution",
-)
-
-parser.add_argument(
-    "--ignore-diagonals",
-    type=bool,
-    default=False,
-    dest="ignore_diag",
-    help="Ignore diagonals",
 )
 parser.add_argument(
     "--data-source",
@@ -103,15 +79,7 @@ parser.add_argument(
     "the algorithm. Will not "
     "affect random inputs.",
 )
-
 parser.add_argument("--filepath", type=str, default="", help="File to read from")
-parser.add_argument(
-    "--destination_path",
-    type=str,
-    default="figures/",
-    dest="destination",
-    help="Location to save " "figures and " "configuration",
-)
 parser.add_argument(
     "--seed", type=int, default=0, help="Seed to use for random number generation"
 )
@@ -134,13 +102,6 @@ parser.add_argument(
     type=float,
     default=1e-3,
     help="Adam learning rate (default: 1e-3)",
-)
-parser.add_argument(
-    "--project",
-    nargs="*",
-    type=float,
-    default=None,
-    help="Project into [a,b] b>a during gradient descent (default: None, do not project))",
 )
 parser.add_argument(
     "--initialize_binomial",
@@ -193,6 +154,11 @@ parser.add_argument(
 parser.add_argument(
     "--measure-gen", action="store_true", help="Measure Generalization properties"
 )
+
+parser.add_argument(
+    "--queries", type=np.array, default=np.array([]), help="Input noisy queries"
+)
+
 args = parser.parse_args()
 if args.silent and args.verbose:
     raise ValueError(
@@ -217,6 +183,7 @@ dataset = data_sources[args.data_source](
 )
 D = np.asarray(dataset.get_dataset())
 
+
 # update dataset shape
 args.n, args.d = D.shape
 stat_module = __import__(args.statistic_module)
@@ -226,8 +193,6 @@ kway_attrs = dataset.randomKway(num_kways=args.workload, k=args.k)
 kway_compact_queries, _ = dataset.get_queries(kway_attrs)
 all_statistic_fn = stat_module.preserve_statistic(kway_compact_queries)
 true_statistics = all_statistic_fn(D)
-
-projection_interval = ProjectionInterval(*args.project) if args.project else None
 
 args.epochs = (
     min(args.epochs, np.ceil(len(true_statistics) / args.top_q).astype(np.int32))
@@ -266,7 +231,7 @@ algorithm_configuration = RAPConfiguration(
     epochs=args.epochs,
     iterations=args.iterations,
     norm=Norm(args.norm),
-    projection_interval=projection_interval,
+    # projection_interval=projection_interval,
     optimizer_learning_rate=args.learning_rate,
     lambda_l1=args.lambda_l1,
     k=args.k,
@@ -279,11 +244,14 @@ algorithm_configuration = RAPConfiguration(
 
 # From RAP, main steps!
 
+
 key, subkey = random.split(key)
 rap = RAP(algorithm_configuration, key=key)
 # growing number of sanitized statistics to preserve
 key, subkey = random.split(subkey)
-rap.train(D, kway_attrs, key)
+rap.train(kway_attrs)
+
+
 
 all_synth_statistics = all_statistic_fn(rap.D_prime)
 
